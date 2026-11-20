@@ -25,6 +25,7 @@ db = SQLAlchemy(app)
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
 
 
 class Chat(db.Model):
@@ -166,6 +167,7 @@ def chat():
     try:
         response = requests.post(
             f"{OLLAMA_URL}/api/chat",
+            headers=({"Authorization": f"Bearer {OLLAMA_API_KEY}"} if OLLAMA_API_KEY else {}),
             json={
                 "model": OLLAMA_MODEL,
                 "messages": ollama_messages,
