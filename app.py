@@ -24,8 +24,8 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
-OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
 
 class Chat(db.Model):
@@ -164,35 +164,59 @@ def chat():
         {"role": "system", "content": system_prompt}
     ] + history
 
+    if not GEMINI_API_KEY:
+        return jsonify({"error": "Gemini API key is not configured."}), 503
+
+    gemini_contents = [
+        {
+            "role": "model" if item["role"] == "assistant" else "user",
+            "parts": [{"text": item["content"]}]
+        }
+        for item in history
+    ]
+
     try:
         response = requests.post(
-            f"{OLLAMA_URL}/api/chat",
-            headers=({"Authorization": f"Bearer {OLLAMA_API_KEY}"} if OLLAMA_API_KEY else {}),
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+            headers={"x-goog-api-key": GEMINI_API_KEY},
             json={
-                "model": OLLAMA_MODEL,
-                "messages": ollama_messages,
-                "stream": False
+                "systemInstruction": {
+                    "parts": [{"text": system_prompt}]
+                },
+                "contents": gemini_contents,
+                "generationConfig": {"temperature": 0.7}
             },
-            timeout=300
+            timeout=120
         )
         response.raise_for_status()
 
         result = response.json()
-        answer = result.get("message", {}).get("content", "").strip()
+        answer = "".join(
+            part.get("text", "")
+            for part in result.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [])
+        ).strip()
 
         if not answer:
-            raise ValueError("Ollama returned an empty response.")
+            raise ValueError("Gemini returned an empty response.")
 
-    except requests.exceptions.ConnectionError:
-        app.logger.exception("Cannot connect to Ollama")
+    except requests.exceptions.HTTPError:
+        app.logger.exception("Gemini API request failed: %s", response.text[:1000])
         return jsonify({
-            "error": "Cannot connect to Ollama. Make sure Ollama is running."
+            "error": "Gemini API rejected the request. Check your API key, model access, and quota."
+        }), 502
+
+    except requests.exceptions.RequestException:
+        app.logger.exception("Cannot connect to Gemini API")
+        return jsonify({
+            "error": "Cannot connect to Gemini. Please try again."
         }), 503
 
     except Exception:
-        app.logger.exception("Ollama request failed")
+        app.logger.exception("Gemini response processing failed")
         return jsonify({
-            "error": "The local AI could not complete the request. Check that the model is installed and Ollama is running."
+            "error": "Gemini could not complete the request."
         }), 502
 
     db.session.add(Message(
