@@ -1,0 +1,16 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+instance/
+chatbot.db
+.DS_Store
+
+# Environment and secret backups
+.env*
+!.env.example
+
+# Environment and secret backups
+.env*
+!.env.example
